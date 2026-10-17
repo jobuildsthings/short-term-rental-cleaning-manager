@@ -5,8 +5,11 @@
  * Data access then goes through withUser(session.appUserId, …) so the
  * database enforces the permission matrix even if a handler forgets a
  * filter — RLS is the backstop, these helpers are the front door.
+ *
+ * NOTE: `@/auth` (next-auth) is imported lazily inside requireSession so
+ * that modules importing these helpers (e.g. lib/api) stay loadable in
+ * unit tests, which never touch the session.
  */
-import { auth } from "@/auth";
 import type { Session } from "next-auth";
 
 export class AuthError extends Error {
@@ -24,6 +27,7 @@ export type AppSession = Session & {
 
 /** Throw AuthError(401) unless a signed-in app user exists. */
 export async function requireSession(): Promise<AppSession> {
+  const { auth } = await import("@/auth");
   const session = (await auth()) as AppSession | null;
   if (!session?.appUserId) {
     throw new AuthError("unauthenticated");

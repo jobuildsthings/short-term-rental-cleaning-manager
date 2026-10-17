@@ -19,5 +19,16 @@ services:
       timeout: 5s
       retries: 5
 
+  # Scheduler worker: hourly iCal sync + recurring-series expansion.
+  # Runs lib/scheduler.ts via scripts/scheduler.ts. Shares the app image.
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "scheduler"]
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
