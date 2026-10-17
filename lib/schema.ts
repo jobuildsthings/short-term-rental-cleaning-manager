@@ -77,6 +77,10 @@ export const agencySettings = pgTable("agency_settings", {
   // Provisioned by the calendar sync (Workstream E); NULL until then.
   googleCalendarId: text("google_calendar_id"),
   googleCalendarShared: boolean("google_calendar_shared").notNull().default(false),
+  // Recap schedule (contracts §7.11): weekday follows JS Date.getDay()
+  // (0=Sunday … 6=Saturday). Default: Saturday 08:00.
+  recapWeekday: integer("recap_weekday").notNull().default(6),
+  recapTime: time("recap_time").notNull().default("08:00"),
 });
 
 /** properties — one row per short-term rental. */
@@ -324,11 +328,55 @@ export const reminders = pgTable("reminders", {
 /** recap_runs — Saturday recap audit. */
 export const recapRuns = pgTable("recap_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
-  weekStarting: date("week_starting", { mode: "string" }).notNull(), // Monday
+  weekStarting: date("week_starting", { mode: "string" }).notNull().unique(), // Monday
   generatedAt: timestamptz("generated_at").notNull().defaultNow(),
   sentAt: timestamptz("sent_at"),
   status: text("status").notNull().default("pending"),
   error: text("error"),
+});
+
+/**
+ * notification_outbox — durable queue for message-fallback notification
+ * intents (contracts §4.22). The audit-log convention from Workstream D
+ * stays as the audit trail; this table is what the worker drains.
+ */
+export const notificationOutbox = pgTable("notification_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  jobId: uuid("job_id")
+    .notNull()
+    .references(() => cleaningJobs.id, { onDelete: "cascade" }),
+  messageId: uuid("message_id")
+    .notNull()
+    .references(() => messages.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(),
+  recipient: text("recipient").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  sentAt: timestamptz("sent_at"),
+});
+
+/**
+ * sms_outbox — reference-only queue for SMS sent via the owner-phone
+ * device bridge. NEVER stores message bodies: the drain renders bodies at
+ * send time from the referenced reminder/notification, using the CURRENT
+ * access instructions (contracts §4.14). See docs/sms-device-bridge.md.
+ */
+export const smsOutbox = pgTable("sms_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  reminderId: uuid("reminder_id").references(() => reminders.id, {
+    onDelete: "cascade",
+  }),
+  notificationId: uuid("notification_id").references(() => notificationOutbox.id, {
+    onDelete: "cascade",
+  }),
+  toPhone: text("to_phone").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  sentAt: timestamptz("sent_at"),
 });
 
 /** audit_log — append-only. Metadata must NEVER contain instruction values,
