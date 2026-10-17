@@ -1,13 +1,17 @@
 /**
  * GET /api/jobs — jobs visible to the session (RLS-scoped).
  * Query params: property_id, status, from (YYYY-MM-DD), to (YYYY-MM-DD).
- * Full job CRUD + state transitions are Workstream B; this foundation
- * endpoint proves the permission matrix end to end.
+ *
+ * POST /api/jobs — manual job creation (owner only). Times default to the
+ * property window (11:00–15:00); start/end date default to the same day —
+ * the client sends a single scheduled_date (contracts §2).
  */
 import { and, eq, gte, lte } from "drizzle-orm";
-import { AuthError, authErrorResponse, requireSession } from "@/lib/auth-helpers";
+import { apiErrorResponse, assertDate, assertTime, badRequest } from "@/lib/api";
+import { AuthError, authErrorResponse, requireOwner, requireSession } from "@/lib/auth-helpers";
 import { getDbApp, withUser } from "@/lib/db";
 import { cleaningJobs } from "@/lib/schema";
+import { createManualJob, serializeJob } from "@/lib/scheduler";
 
 export async function GET(req: Request) {
   try {
@@ -48,5 +52,47 @@ export async function GET(req: Request) {
   } catch (e) {
     if (e instanceof AuthError) return authErrorResponse(e);
     throw e;
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const session = await requireOwner();
+    const body = (await req.json()) as {
+      property_id?: unknown;
+      title?: unknown;
+      job_type?: unknown;
+      scheduled_date?: unknown;
+      start_time?: unknown;
+      end_time?: unknown;
+      checklist_template_id?: unknown;
+    };
+    if (typeof body.property_id !== "string" || body.property_id.length === 0) {
+      throw badRequest("property_id is required");
+    }
+    if (typeof body.title !== "string" || body.title.trim().length === 0) {
+      throw badRequest("title is required");
+    }
+    if (typeof body.job_type !== "string") {
+      throw badRequest("job_type is required");
+    }
+    const scheduledDate = assertDate(body.scheduled_date, "scheduled_date");
+
+    const job = await withUser(getDbApp(), session.appUserId, (tx) =>
+      createManualJob(tx, {
+        propertyId: body.property_id as string,
+        title: (body.title as string).trim(),
+        jobType: body.job_type as string,
+        scheduledDate,
+        startTime: body.start_time !== undefined ? assertTime(body.start_time, "start_time") : undefined,
+        endTime: body.end_time !== undefined ? assertTime(body.end_time, "end_time") : undefined,
+        checklistTemplateId:
+          typeof body.checklist_template_id === "string" ? body.checklist_template_id : null,
+        createdBy: session.appUserId,
+      }),
+    );
+    return Response.json(serializeJob(job), { status: 201 });
+  } catch (e) {
+    return apiErrorResponse(e);
   }
 }
