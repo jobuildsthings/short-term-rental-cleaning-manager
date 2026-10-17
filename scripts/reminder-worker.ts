@@ -45,7 +45,7 @@ async function pass(): Promise<void> {
 
   try {
     const r = await processDueReminders(db);
-    if (r.emailSent + r.smsQueued + r.failed > 0) {
+    if (r.sent + r.smsQueued + r.failed > 0) {
       log("reminders_processed", r);
     }
   } catch (e) {

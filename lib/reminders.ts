@@ -276,11 +276,11 @@ interface DueReminderRow {
  * (attempts), then `failed` + audit — never silent.
  */
 export async function processDueReminders(db: Pick<Db, "transaction">): Promise<{
-  emailSent: number;
+  sent: number;
   smsQueued: number;
   failed: number;
 }> {
-  const stats = { emailSent: 0, smsQueued: 0, failed: 0 };
+  const stats = { sent: 0, smsQueued: 0, failed: 0 };
   const now = new Date();
   await db.transaction(async (tx0) => {
     const tx = tx0 as Tx;
@@ -335,7 +335,7 @@ export async function processDueReminders(db: Pick<Db, "transaction">): Promise<
             entityId: row.id,
             metadata: { channel: "email", job_id: row.jobId },
           });
-          stats.emailSent++;
+          stats.sent++;
         } else if (row.channel === "sms") {
           if (smsProvider() === "twilio") {
             const { sendSmsViaTwilio } = await import("./send");
@@ -351,7 +351,7 @@ export async function processDueReminders(db: Pick<Db, "transaction">): Promise<
               entityId: row.id,
               metadata: { channel: "sms", via: "twilio", job_id: row.jobId },
             });
-            stats.emailSent++;
+            stats.sent++;
           } else {
             const outboxId = await queueSmsForDevice(
               tx,

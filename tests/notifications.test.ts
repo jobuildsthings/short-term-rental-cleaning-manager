@@ -286,7 +286,7 @@ describe("processDueReminders", () => {
     });
 
     const stats = await processDueReminders(dbish());
-    expect(stats.emailSent).toBe(1);
+    expect(stats.sent).toBe(1);
     expect(stats.smsQueued).toBe(1);
 
     // Email went out with the CURRENT code (CODE-1111 in DB).
