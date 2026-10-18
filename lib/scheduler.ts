@@ -998,8 +998,42 @@ export async function transitionJob(
     set.cancelReason = opts?.reason ?? null;
   }
   if (to === "declined") {
-    // Back to the pool: the declining dispatcher is no longer the assignee.
-    set.assignedToUserId = null;
+    // Contracts §1/§4: assigned → declined → scheduled. The declining
+    // dispatcher is no longer the assignee; the job returns to the pool
+    // with needs_attention so the owner spots it in the daily digest.
+    // Record the decline first (audited), then the return to pool.
+    await tx.update(cleaningJobs).set({
+      status: "declined",
+      updatedAt: nowIso(),
+    }).where(eq(cleaningJobs.id, job.id));
+    await audit(tx, {
+      actorType: actor.kind,
+      actorUserId: actor.userId,
+      action: "job.status_changed",
+      entityType: "cleaning_job",
+      entityId: job.id,
+      metadata: { from: job.status, to: "declined", ...(opts?.reason ? { reason: opts.reason } : {}) },
+    });
+    await tx.update(cleaningJobs).set({
+      status: "scheduled",
+      assignedToUserId: null,
+      needsAttention: true,
+      updatedAt: nowIso(),
+    }).where(eq(cleaningJobs.id, job.id));
+    await audit(tx, {
+      actorType: actor.kind,
+      actorUserId: actor.userId,
+      action: "job.returned_to_pool",
+      entityType: "cleaning_job",
+      entityId: job.id,
+      metadata: { ...(opts?.reason ? { reason: opts.reason } : {}) },
+    });
+    const [declined] = await tx
+      .select()
+      .from(cleaningJobs)
+      .where(eq(cleaningJobs.id, job.id))
+      .limit(1);
+    return declined!;
   }
 
   await tx.update(cleaningJobs).set(set).where(eq(cleaningJobs.id, job.id));
