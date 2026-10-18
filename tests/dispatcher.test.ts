@@ -49,9 +49,16 @@ function asUser<T>(db: Pick<Db, "transaction">, userId: string, fn: (tx: Tx) => 
 }
 
 function isoDatePlus(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // PT calendar date (not UTC): the app filters by todayPT(), so test
+  // fixtures must use the same zone or dates drift near midnight UTC.
+  const pt = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }),
+  );
+  pt.setDate(pt.getDate() + days);
+  const y = pt.getFullYear();
+  const m = String(pt.getMonth() + 1).padStart(2, "0");
+  const d = String(pt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 beforeAll(async () => {
